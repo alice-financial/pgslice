@@ -65,9 +65,13 @@ class PgSliceTest < Minitest::Test
     assert_period "month", trigger_based: true, tablespace: true
   end
 
+  def test_use_view_based
+    assert_period "year", use_view: true
+  end
+
   private
 
-  def assert_period(period, column: "createdAt", trigger_based: false, tablespace: false, version: nil)
+  def assert_period(period, column: "createdAt", trigger_based: false, tablespace: false, version: nil, use_view: false)
     $conn.exec('CREATE STATISTICS my_stats ON "Id", "UserId" FROM "Posts"')
 
     if server_version_num >= 120000 && !trigger_based
@@ -77,7 +81,7 @@ class PgSliceTest < Minitest::Test
     run_command "prep Posts #{column} #{period} #{"--trigger-based" if trigger_based} #{"--test-version #{version}" if version}"
     assert table_exists?("Posts_intermediate")
 
-    run_command "add_partitions Posts --intermediate --past 1 --future 1 #{"--tablespace pg_default" if tablespace}"
+    run_command "add_partitions Posts --intermediate --past 1 --future 1 #{"--tablespace pg_default" if tablespace} #{"--use-view #{use_view}" if use_view}"
     now = Time.now.utc
     time_format = case period
       when "day"
@@ -87,6 +91,7 @@ class PgSliceTest < Minitest::Test
       else
         "%Y"
       end
+
     partition_name = "Posts_#{now.strftime(time_format)}"
     assert_primary_key partition_name
     assert_index partition_name
@@ -107,7 +112,8 @@ class PgSliceTest < Minitest::Test
     end
 
     assert_equal 0, count("Posts_intermediate")
-    run_command "fill Posts"
+    run_command "fill Posts #{"--use-view #{use_view}" if use_view}"
+
     assert_equal 10000, count("Posts_intermediate")
 
     # insert into old table
@@ -116,15 +122,19 @@ class PgSliceTest < Minitest::Test
     run_command "analyze Posts"
 
     # TODO check sequence ownership
-    output = run_command "swap Posts"
+    output = run_command "swap Posts #{"--use-view #{use_view}" if use_view}"
     assert_match "SET LOCAL lock_timeout = '5s';", output
     assert table_exists?("Posts")
     assert table_exists?("Posts_retired")
     refute table_exists?("Posts_intermediate")
 
-    assert_equal 10000, count("Posts")
-    run_command "fill Posts --swapped"
-    assert_equal 10001, count("Posts")
+    if use_view
+      assert_equal 10001, count("Posts")
+    else
+      assert_equal 10000, count("Posts")
+      run_command "fill Posts --swapped"
+      assert_equal 10001, count("Posts")
+    end
 
     run_command "add_partitions Posts --future 3"
     days = case period
@@ -193,8 +203,14 @@ class PgSliceTest < Minitest::Test
       puts "$ pgslice #{command}"
       puts
     end
-    stdout, stderr = capture_io do
+    # this breaks some tests that check stdout, but swallowing stdout makes debugging much harder
+    if debug?
       PgSlice::CLI.start("#{command} --url #{$url}".split(" "))
+      stderr = ""
+    else
+      stdout, stderr = capture_io do
+        PgSlice::CLI.start("#{command} --url #{$url}".split(" "))
+      end
     end
     if verbose?
       puts stdout
@@ -290,5 +306,9 @@ class PgSliceTest < Minitest::Test
 
   def verbose?
     ENV["VERBOSE"]
+  end
+
+  def debug?
+    ENV["DEBUG"]
   end
 end
