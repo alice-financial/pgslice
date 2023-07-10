@@ -15,6 +15,10 @@ module PgSlice
       execute("SELECT COUNT(*) FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2", [schema, name]).first["count"].to_i > 0
     end
 
+    def view_exists?
+      execute("SELECT COUNT(*) FROM pg_catalog.pg_views WHERE schemaname = $1 AND viewname = $2", [schema, name]).first["count"].to_i > 0
+    end
+
     def columns
       execute("SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND is_generated = 'NEVER'", [schema, name]).map{ |r| r["column_name"] }
     end

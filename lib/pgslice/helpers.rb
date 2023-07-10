@@ -75,12 +75,13 @@ module PgSlice
       log_sql query
       unless options[:dry_run]
         begin
-          execute(query)
+          result = execute(query)
         rescue PG::ServerError => e
           abort("#{e.class.name}: #{e.message}")
         end
       end
       log_sql
+      result
     end
 
     def run_queries_without_transaction(queries)
@@ -135,6 +136,10 @@ module PgSlice
 
     def assert_table(table)
       abort "Table not found: #{table}" unless table.exists?
+    end
+
+    def assert_view(table)
+      abort "Table not found: #{table}" unless table.view_exists?
     end
 
     def assert_no_table(table)
