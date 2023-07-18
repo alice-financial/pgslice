@@ -400,4 +400,7 @@ docker run -p=8000:5432 postgres:14
 TZ=Etc/UTC PGSLICE_URL=postgres://postgres@localhost:8000/postgres bundle exec rake
 ```
 
+- You can run individual tests in the suite with `ruby -I test test/pgslice_test.rb --name <test_name_here>`
+- By default, the test suite will swallow STDOUT and STDERR. You can print STDOUT by setting `VERBOSE=1` and prevent them from being swallowed with `DEBUG=1` (but note that the latter will cause some tests to fail that match against STDOUT).
+
 On Mac, you must use [Docker Desktop](https://www.docker.com/products/docker-desktop/) for the port mapping to localhost to work.
