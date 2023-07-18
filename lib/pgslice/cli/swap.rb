@@ -22,16 +22,19 @@ module PgSlice
           "DROP FUNCTION partitioned_view_trigger();",
           "ALTER TABLE #{quote_table(intermediate_table)} RENAME TO #{quote_no_schema(table)};"
         ]
+        retired_table.sequences.each do |sequence|
+          queries << "ALTER SEQUENCE #{quote_ident(sequence["sequence_schema"])}.#{quote_ident(sequence["sequence_name"])} OWNED BY #{quote_table(table)}.#{quote_ident(sequence["related_column"])};"
+        end
       else
         queries = [
           "ALTER TABLE #{quote_table(table)} RENAME TO #{quote_no_schema(retired_table)};",
           "ALTER TABLE #{quote_table(intermediate_table)} RENAME TO #{quote_no_schema(table)};"
         ]
+        table.sequences.each do |sequence|
+          queries << "ALTER SEQUENCE #{quote_ident(sequence["sequence_schema"])}.#{quote_ident(sequence["sequence_name"])} OWNED BY #{quote_table(table)}.#{quote_ident(sequence["related_column"])};"
+        end
       end
 
-      table.sequences.each do |sequence|
-        queries << "ALTER SEQUENCE #{quote_ident(sequence["sequence_schema"])}.#{quote_ident(sequence["sequence_name"])} OWNED BY #{quote_table(table)}.#{quote_ident(sequence["related_column"])};"
-      end
 
       queries.unshift("SET LOCAL lock_timeout = #{escape_literal(options[:lock_timeout])};")
 

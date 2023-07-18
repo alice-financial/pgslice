@@ -78,6 +78,9 @@ class PgSliceTest < Minitest::Test
       $conn.exec('ALTER TABLE "Posts" ADD COLUMN "Gen" INTEGER GENERATED ALWAYS AS ("Id" * 10) STORED')
     end
 
+    # Get sequence names prior to partition and swap, then check ownership after.
+    sequences = query_sequences("Posts")
+
     run_command "prep Posts #{column} #{period} #{"--trigger-based" if trigger_based} #{"--test-version #{version}" if version}"
     assert table_exists?("Posts_intermediate")
 
@@ -121,12 +124,16 @@ class PgSliceTest < Minitest::Test
 
     run_command "analyze Posts"
 
-    # TODO check sequence ownership
     output = run_command "swap Posts #{"--use-view #{use_view}" if use_view}"
     assert_match "SET LOCAL lock_timeout = '5s';", output
     assert table_exists?("Posts")
     assert table_exists?("Posts_retired")
     refute table_exists?("Posts_intermediate")
+
+    assert_equal 1, sequences.size
+    sequences.each do |sequence_name|
+      assert_match sequence_owner(sequence_name), "Posts"
+    end
 
     if use_view
       assert_equal 10001, count("Posts")
@@ -236,6 +243,18 @@ class PgSliceTest < Minitest::Test
     result.any?
   end
 
+  def sequence_owner(sequence_name)
+    result = $conn.exec <<~SQL
+      SELECT tab.relname
+      FROM pg_class
+      JOIN pg_depend ON (pg_class.relfilenode = pg_depend.objid)
+      JOIN pg_class AS tab on (pg_depend.refobjid = tab.relfilenode)
+      JOIN pg_attribute ON (pg_attribute.attnum = pg_depend.refobjsubid AND pg_attribute.attrelid = pg_depend.refobjid)
+      WHERE pg_class.relname = '#{sequence_name}';
+    SQL
+    result.first["relname"]
+  end
+
   def count(table_name, only: false)
     result = $conn.exec <<~SQL
       SELECT COUNT(*) FROM #{only ? "ONLY " : ""}"#{table_name}"
@@ -302,6 +321,25 @@ class PgSliceTest < Minitest::Test
 
   def server_version_num
     $conn.exec("SHOW server_version_num").first["server_version_num"].to_i
+  end
+  
+  def query_sequences(table_name)
+    result = $conn.exec <<~SQL
+      SELECT
+        a.attname AS related_column,
+        n.nspname AS sequence_schema,
+        s.relname AS sequence_name,
+        t.relname AS table_name
+      FROM pg_class s
+      JOIN pg_depend d ON d.objid = s.oid
+      JOIN pg_class t ON d.objid = s.oid AND d.refobjid = t.oid
+      JOIN pg_attribute a ON (d.refobjid, d.refobjsubid) = (a.attrelid, a.attnum)
+      JOIN pg_namespace n ON n.oid = s.relnamespace
+      JOIN pg_namespace nt ON nt.oid = t.relnamespace
+      WHERE s.relkind = 'S'
+        AND t.relname = '#{table_name}'
+    SQL
+    result.map{|row| row['sequence_name'] }
   end
 
   def verbose?
