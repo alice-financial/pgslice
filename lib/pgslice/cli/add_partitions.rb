@@ -163,7 +163,7 @@ begin
         THEN
             INSERT INTO #{quote_table(table)} VALUES(NEW.*);
         ELSE
-            UPDATE #{quote_table(table)} SET #{quote_ident(primary_key)} = NEW.#{quote_ident(primary_key)}, data = NEW.data
+            UPDATE #{quote_table(table)} SET #{quote_ident(primary_key)} = NEW.#{quote_ident(primary_key)}, #{table.columns.reject{|x| x == primary_key}.map{|x| "#{quote_ident(x)} = NEW.#{quote_ident(x)}"}.join(', ')}
                 WHERE #{quote_ident(primary_key)} = OLD.#{quote_ident(primary_key)};
         END IF;
         RETURN NEW;
